@@ -1,0 +1,13 @@
+import nextEnv from '@next/env';
+const { loadEnvConfig } = nextEnv;
+loadEnvConfig(process.cwd());
+const required=['NEXT_PUBLIC_SITE_URL','RESEND_API_KEY','CONTACT_FROM_EMAIL','CONTACT_TO_EMAIL','UPSTASH_REDIS_REST_URL','UPSTASH_REDIS_REST_TOKEN','IP_HASH_SECRET','TURNSTILE_SECRET_KEY','NEXT_PUBLIC_TURNSTILE_SITE_KEY'];
+const missing=required.filter(key=>!process.env[key]);
+const errors=[];
+if(missing.length)errors.push(`Missing variables: ${missing.join(', ')}`);
+if(process.env.NEXT_PUBLIC_SITE_URL&&!/^https:\/\//.test(process.env.NEXT_PUBLIC_SITE_URL))errors.push('The public production URL must use HTTPS.');
+if(process.env.IP_HASH_SECRET&&process.env.IP_HASH_SECRET.length<32)errors.push('IP_HASH_SECRET must have at least 32 characters.');
+if(!process.env.VERCEL&&!process.env.TRUSTED_IP_HEADER)errors.push('Configure a trusted, proxy-overwritten IP header on non-Vercel hosts.');
+if(process.env.CRM_WEBHOOK_URL&&!process.env.CRM_WEBHOOK_URL.startsWith('https://'))errors.push('CRM_WEBHOOK_URL must use HTTPS.');
+for(const key of ['LEGAL_REVIEWED','BUSINESS_DETAILS_CONFIRMED'])if(process.env[key]!=='true')errors.push(`Owner review required: ${key}`);
+if(errors.length){console.error(errors.join('\n'));process.exitCode=1;}else console.log('Configuration presence checks passed. Run a real delivery test before opening the site.');

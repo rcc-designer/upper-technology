@@ -1,0 +1,24 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { handleAudit,type Dependencies } from '../src/lib/audit-handler';
+import { sendEmail,rateLimit,verifyChallenge } from '../src/lib/integrations';
+const base={name:'Test Person',company:'Example Services',email:'test@example.test',website:'https://example.test',service:'websites',message:'Please review our inquiry process.',consent:true,locale:'en',kind:'audit',companyFax:'',startedAt:Date.now()-10000,submissionId:'933cce84-6d3a-4d6c-a320-7ae3129b9496',turnstileToken:'test-token'};
+process.env.NEXT_PUBLIC_SITE_URL='https://example.test';process.env.TRUSTED_IP_HEADER='x-test-ip';delete process.env.VERCEL;
+const deps=():Dependencies=>({rateLimit:async()=>true,verifyChallenge:async()=>true,sendEmail:async()=>{},onSuccess:()=>{},configured:()=>true});
+function request(body:unknown=base,origin='https://example.test',ip=true){return new Request('https://example.test/api/audit',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',...(ip?{'x-test-ip':'192.0.2.10'}:{})},body:JSON.stringify(body)});}
+test('valid input returns success only after provider acceptance',async()=>{let sent=false,forwarded=false;const d=deps();d.sendEmail=async()=>{sent=true;};d.onSuccess=()=>{assert.equal(sent,true);forwarded=true;};const r=await handleAudit(request(),d);assert.equal(r.status,200);assert.deepEqual(await r.json(),{ok:true,code:'accepted'});assert.equal(forwarded,true);});
+test('provider failure never returns success',async()=>{const d=deps();d.sendEmail=async()=>{throw Error('failed');};assert.equal((await handleAudit(request(),d)).status,502);});
+test('invalid email rejected',async()=>{assert.equal((await handleAudit(request({...base,email:'bad'}),deps())).status,422);});
+test('honeypot rejected',async()=>{assert.equal((await handleAudit(request({...base,companyFax:'spam'}),deps())).status,422);});
+test('consent required',async()=>{assert.equal((await handleAudit(request({...base,consent:false}),deps())).status,422);});
+test('cross origin rejected',async()=>{assert.equal((await handleAudit(request(base,'https://attacker.test'),deps())).status,403);});
+test('fast submissions rejected',async()=>{assert.equal((await handleAudit(request({...base,startedAt:Date.now()}),deps())).status,422);});
+test('oversized body rejected',async()=>{assert.equal((await handleAudit(request({...base,message:'x'.repeat(13000)}),deps())).status,400);});
+test('missing configuration fails closed',async()=>{const d=deps();d.configured=()=>false;assert.equal((await handleAudit(request(),d)).status,503);});
+test('missing trusted client address fails closed',async()=>{assert.equal((await handleAudit(request(base,'https://example.test',false),deps())).status,503);});
+test('rate limit returns retry interval',async()=>{const d=deps();d.rateLimit=async()=>false;const r=await handleAudit(request(),d);assert.equal(r.status,429);assert.equal(r.headers.get('Retry-After'),'900');});
+test('challenge failure rejected before email',async()=>{const d=deps();d.verifyChallenge=async()=>false;d.sendEmail=async()=>assert.fail('must not send');assert.equal((await handleAudit(request(),d)).status,422);});
+test('rate provider failure fails closed',async()=>{const d=deps();d.rateLimit=async()=>{throw Error('down');};assert.equal((await handleAudit(request(),d)).status,502);});
+test('email integration requires accepted response id',async()=>{const original=global.fetch;try{global.fetch=async()=>Response.json({error:'provider failed'},{status:500});await assert.rejects(sendEmail(base as never));global.fetch=async()=>Response.json({});await assert.rejects(sendEmail(base as never));global.fetch=async()=>Response.json({id:'test-accepted'});await sendEmail(base as never);}finally{global.fetch=original;}});
+test('rate counter uses atomic expiry and hashed identity',async()=>{const original=global.fetch;process.env.IP_HASH_SECRET='test-only-secret-not-used-in-production';try{global.fetch=async(_url,options)=>{const cmd=JSON.parse(options?.body as string);assert.equal(cmd[0],'EVAL');assert.ok(cmd[1].includes('EXPIRE'));assert.equal(cmd.at(-1),'900');assert.ok(!cmd[3].includes('192.0.2.1'));return Response.json({result:6});};assert.equal(await rateLimit('ip:192.0.2.1'),false);}finally{global.fetch=original;}});
+test('challenge hostname and action must match',async()=>{const original=global.fetch;try{global.fetch=async()=>Response.json({success:true,hostname:'attacker.test',action:'audit'});assert.equal(await verifyChallenge('token','example.test'),false);global.fetch=async()=>Response.json({success:true,hostname:'example.test',action:'other'});assert.equal(await verifyChallenge('token','example.test'),false);global.fetch=async()=>Response.json({success:true,hostname:'example.test',action:'audit'});assert.equal(await verifyChallenge('token','example.test'),true);}finally{global.fetch=original;}});

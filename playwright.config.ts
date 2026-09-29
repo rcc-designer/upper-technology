@@ -1,0 +1,2 @@
+import {defineConfig} from '@playwright/test';
+export default defineConfig({testDir:'./tests/browser',use:{baseURL:process.env.TEST_BASE_URL||'http://localhost:3000'},projects:[{name:'mobile',use:{viewport:{width:390,height:844}}},{name:'tablet',use:{viewport:{width:768,height:1024}}},{name:'desktop',use:{viewport:{width:1440,height:1000}}}],reporter:[['list'],['html',{open:'never'}]],webServer:process.env.TEST_BASE_URL?undefined:{command:'npm run start',url:'http://localhost:3000',reuseExistingServer:true,timeout:60000}});

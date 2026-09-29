@@ -1,0 +1,5 @@
+'use client';
+import { useState } from 'react';
+import { content } from '@/content';
+import type { Locale } from '@/lib/routes';
+export function Workflow({locale}:{locale:Locale}) {const [step,setStep]=useState(0);const c=content[locale];return <div className="workflow"><div className="workflow-meta"><span>{c.labels.demo}</span><span>0{step+1} / 03</span></div><ol className="workflow-steps">{c.work.steps.map((s,i)=><li key={s} className={i===step?'active':i<step?'complete':''}><button onClick={()=>setStep(i)} aria-current={i===step?'step':undefined}><span className="step-number">0{i+1}</span><span>{s}</span></button></li>)}</ol><div className="workflow-detail" aria-live="polite"><span className="eyebrow">{c.work.state}</span><h3>{c.work.steps[step]}</h3><p>{c.work.stepDetails[step]}</p></div><div className="workflow-control"><button className="button" onClick={()=>setStep((step+1)%3)}>{step===2?c.work.reset:c.work.button}</button><span aria-hidden="true">{['● ○ ○','● ● ○','● ● ●'][step]}</span></div></div>;}
